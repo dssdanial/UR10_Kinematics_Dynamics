@@ -121,3 +121,7 @@ print("Final position:", T_result[:3, 3])
 ```
 
 ---
+
+### ✅ Result
+![Screencast from 08-07-2025 06_22_44 PM](https://github.com/user-attachments/assets/b7b7dc2d-885e-467c-ae87-d9bab3168389)
+
