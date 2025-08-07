@@ -1,4 +1,4 @@
-# 📄 README: Robot Kinematics – DH Parameters, Forward & Inverse Kinematics
+# 📄 Robot Kinematics – DH Parameters, Forward & Inverse Kinematics
 
 ## 📌 Overview
 
