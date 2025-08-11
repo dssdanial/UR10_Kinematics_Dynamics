@@ -10,7 +10,7 @@ This repository demonstrates and compares two common inverse kinematics (IK) sol
 
 ## Overview
 
-Inverse kinematics aims to find joint angles changes (Δq) that reduce the task-space error (e) between the current and target end-effector poses.
+Inverse kinematics aims to determine the joint angle changes (Δq) that minimize the task-space error (e) between the current and target end-effector poses.
 
 The Jacobian matrix **J(q)** maps joint velocities to end-effector velocities:
 
@@ -87,22 +87,7 @@ The code below compares Pinv and DLS on the same IK problem and plots:
 - Minimum singular value \( \sigma_{min} \)
 
 ```python
-import numpy as np
-import matplotlib.pyplot as plt
 
-def ik_solver(q_init, T_goal, method="pinv", max_iter=200, alpha_step=0.5, lam=0.05):
-    q = q_init.copy()
-    errors, dq_norms, sigmas = [], [], []
-    
-    for _ in range(max_iter):
-        T_all = forward_kinematics(q, robot.d, robot.a, robot.alpha)
-        pos_current = T_all[-1][:3, 3]
-        error = T_goal - pos_current
-        
-        errors.append(np.linalg.norm(error))
-        
-        J = Jacobian(q)[0:3, :]
-        
         # SVD for singularity measure
         U, S, Vt = np.linalg.svd(J)
         sigmas.append(np.min(S))
@@ -116,50 +101,13 @@ def ik_solver(q_init, T_goal, method="pinv", max_iter=200, alpha_step=0.5, lam=0
         
         dq_norms.append(np.linalg.norm(dq))
         q += dq
-
-        if np.linalg.norm(error) < 1e-4:
-            break
-    
-    return errors, dq_norms, sigmas
-
-# Run both solvers
-errors_pinv, dq_pinv, sigma_pinv = ik_solver(q0, np.array([0.5, 0.2, 0.9]), method="pinv")
-errors_dls, dq_dls, sigma_dls = ik_solver(q0, np.array([0.5, 0.2, 0.9]), method="dls")
-
-# Plot results
-plt.figure(figsize=(12,4))
-
-plt.subplot(1,3,1)
-plt.plot(errors_pinv, label="Pinv")
-plt.plot(errors_dls, label="DLS")
-plt.xlabel("Iteration")
-plt.ylabel("Error norm")
-plt.legend()
-plt.title("Task-space error")
-
-plt.subplot(1,3,2)
-plt.plot(dq_pinv, label="Pinv")
-plt.plot(dq_dls, label="DLS")
-plt.xlabel("Iteration")
-plt.ylabel("||Δq||")
-plt.legend()
-plt.title("Joint motion per step")
-
-plt.subplot(1,3,3)
-plt.plot(sigma_pinv, label="Pinv")
-plt.plot(sigma_dls, label="DLS")
-plt.xlabel("Iteration")
-plt.ylabel("Min singular value")
-plt.legend()
-plt.title("Closeness to singularity")
-
-plt.tight_layout()
-plt.show()
 ```
 
 ---
 
 ## 5. Interpretation of Plots and Behavior
+
+<img width="1444" height="647" alt="Figure_12" src="https://github.com/user-attachments/assets/262a3568-4f82-45c1-a073-0c41604954ae" />
 
 | Aspect            | Observation                              | Interpretation                                    | Suggested Improvement                      |
 |-------------------|----------------------------------------|-------------------------------------------------|--------------------------------------------|
