@@ -1,127 +1,180 @@
-# 📄 Robot Kinematics – DH Parameters, Forward & Inverse Kinematics
 
-## 📌 Overview
+# Inverse Kinematics: Moore–Penrose Pseudo-Inverse vs Damped Least Squares (DLS)
 
-This project implements and demonstrates **robot kinematics** for a 6-DOF manipulator (e.g., UR10) using:
-- Denavit–Hartenberg (DH) parameters
-- Forward Kinematics (FK)
-- Jacobian-based Inverse Kinematics (IK)
+This repository demonstrates and compares two common inverse kinematics (IK) solvers:
 
-The code builds all components **from scratch**, without relying on prebuilt kinematic libraries, and culminates in solving for the joint angles that reach a desired end-effector pose.
+- **Moore–Penrose Pseudo-Inverse (Pinv)**
+- **Damped Least Squares (DLS)**, also known as Levenberg–Marquardt
 
 ---
 
-## 📐 1. DH Parameters
+## Overview
 
-The Denavit–Hartenberg convention describes a robot's kinematic chain via 4 parameters per joint:
+Inverse kinematics aims to find joint angles changes (Δq) that reduce the task-space error (e) between the current and target end-effector poses.
 
-- `θᵢ`: joint angle (variable for revolute joints)
-- `dᵢ`: offset along previous z-axis
-- `aᵢ`: length of the common normal (x-axis distance)
-- `αᵢ`: twist angle between z-axes
+The Jacobian matrix **J(q)** maps joint velocities to end-effector velocities:
 
-Each link's transformation matrix is:
-
-```
-T_i =
-[[cosθᵢ, -sinθᵢcosαᵢ,  sinθᵢsinαᵢ, aᵢcosθᵢ],
- [sinθᵢ,  cosθᵢcosαᵢ, -cosθᵢsinαᵢ, aᵢsinθᵢ],
- [0,       sinαᵢ,        cosαᵢ,       dᵢ],
- [0,         0,             0,         1]]
-```
-
----
-
-## 🤖 2. Forward Kinematics (FK)
-
-FK computes the transformation from the base frame to the end-effector:
-
-```python
-def forward_kinematics(q, d, a, alpha):
-    T = np.eye(4)
-    transforms = []
-    for i in range(len(q)):
-        A = dh_matrix(q[i], d[i], a[i], alpha[i])
-        T = T @ A
-        transforms.append(T)
-    return transforms  # T_0_1, ..., T_0_n
-```
-
-Where `dh_matrix(...)` computes the individual transformation using the matrix above.
-
----
-
-## 📉 3. Jacobian
-
-The **geometric Jacobian** relates joint velocities to end-effector twist:
-
-```
-ẋ = J(q) · q̇
-```
-
-For revolute joints:
-
-```
-J_vᵢ = zᵢ × (oₙ - oᵢ)
-J_ωᵢ = zᵢ
-```
+\[
+J(q) \Delta q = e
+\]
 
 Where:
-- `zᵢ`: rotation axis of joint i (in base frame)
-- `oᵢ`: position of joint i
-- `oₙ`: position of end-effector
+
+- \( J(q) \) is the Jacobian at current joint configuration \( q \)
+- \( \Delta q \) is the joint angle increment to compute
+- \( e \) is the task-space error vector (e.g., position error)
 
 ---
 
-## 🔁 4. Inverse Kinematics (IK)
+## 1. Moore–Penrose Pseudo-Inverse (Pinv)
 
-### ✅ Position-Only IK (Numerical)
+For non-square Jacobians, the pseudo-inverse provides a least-squares solution:
 
-This simplified solver ignores orientation and solves only for position:
+\[
+\Delta q = J^{+} e = J^T (J J^T)^{-1} e
+\]
 
-```
-Δq = α · J⁺ · (p_desired - p_current)
-```
+### Problem:
+
+- When \( J J^T \) is near singular (determinant close to zero), inversion is numerically unstable.
+- This leads to **large, erratic joint motions** near singularities (robot configurations where Jacobian loses rank).
+- For example, small changes in task-space can cause huge joint jumps, risking hardware damage or poor convergence.
+
+---
+
+## 2. Damped Least Squares (DLS)
+
+To stabilize near singularities, DLS adds a damping factor \( \lambda > 0 \) to the normal equations:
+
+\[
+\Delta q = J^T (J J^T + \lambda^2 I)^{-1} e
+\]
 
 Where:
-- `α`: step size
-- `J⁺`: damped pseudoinverse of Jacobian
-- `Δq`: change in joint angles
 
-Damped pseudoinverse:
+- \( I \) is the identity matrix
+- \( \lambda \) is a small positive damping factor (e.g., 0.01–0.1)
 
-```
-J⁺ = Jᵀ · (J·Jᵀ + λ²·I)⁻¹
-```
+### Benefits:
 
----
-
-## 🧠 Notes
-
-- Orientation IK requires working with SE(3) Lie algebra (twist vector).
-- Starting with position-only IK simplifies debugging.
+- Ensures \( J J^T + \lambda^2 I \) is always invertible.
+- Sacrifices exactness for smoothness and stability.
+- Penalizes large joint updates, preventing erratic motions near singularities.
+- Slower but safer convergence.
 
 ---
 
-## 🎯 5. Target Pose Execution
+## 3. Measuring Closeness to Singularity
 
-To compute joint angles that reach a desired position:
+- The **minimum singular value** \( \sigma_{min} \) of \( J \) indicates closeness to singularity:
+  - \( \sigma_{min} \approx 0 \) → near singularity.
+- The **condition number** \( \kappa = \sigma_{max} / \sigma_{min} \) blows up near singularities.
 
 ```python
-# Define desired pose (position only)
-T_goal = sm.SE3(0.5, 0.2, 0.9)
-pos_goal = T_goal.t
-
-# Solve IK
-theta_sol = inverse_kinematics_position_only(pos_goal, q0)
-
-# Evaluate
-T_result = forward_kinematics(theta_sol, d, a, alpha)[-1]
-print("Final position:", T_result[:3, 3])
+U, S, Vt = np.linalg.svd(J)
+sigma_min = np.min(S)
+condition_number = np.max(S) / sigma_min
 ```
 
 ---
 
-### ✅ Result
-![Screencast from 08-07-2025 06_22_44 PM](https://github.com/user-attachments/assets/b7b7dc2d-885e-467c-ae87-d9bab3168389)
+## 4. Python Sketch for IK Solver Comparison
 
+The code below compares Pinv and DLS on the same IK problem and plots:
+
+- Task-space error norm \( \| e \| \)
+- Joint motion magnitude \( \| \Delta q \| \)
+- Minimum singular value \( \sigma_{min} \)
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+def ik_solver(q_init, T_goal, method="pinv", max_iter=200, alpha_step=0.5, lam=0.05):
+    q = q_init.copy()
+    errors, dq_norms, sigmas = [], [], []
+    
+    for _ in range(max_iter):
+        T_all = forward_kinematics(q, robot.d, robot.a, robot.alpha)
+        pos_current = T_all[-1][:3, 3]
+        error = T_goal - pos_current
+        
+        errors.append(np.linalg.norm(error))
+        
+        J = Jacobian(q)[0:3, :]
+        
+        # SVD for singularity measure
+        U, S, Vt = np.linalg.svd(J)
+        sigmas.append(np.min(S))
+        
+        # Choose solver
+        if method == "pinv":
+            dq = alpha_step * np.linalg.pinv(J) @ error
+        elif method == "dls":
+            J_damped = J.T @ np.linalg.inv(J @ J.T + (lam**2) * np.eye(3))
+            dq = alpha_step * J_damped @ error
+        
+        dq_norms.append(np.linalg.norm(dq))
+        q += dq
+
+        if np.linalg.norm(error) < 1e-4:
+            break
+    
+    return errors, dq_norms, sigmas
+
+# Run both solvers
+errors_pinv, dq_pinv, sigma_pinv = ik_solver(q0, np.array([0.5, 0.2, 0.9]), method="pinv")
+errors_dls, dq_dls, sigma_dls = ik_solver(q0, np.array([0.5, 0.2, 0.9]), method="dls")
+
+# Plot results
+plt.figure(figsize=(12,4))
+
+plt.subplot(1,3,1)
+plt.plot(errors_pinv, label="Pinv")
+plt.plot(errors_dls, label="DLS")
+plt.xlabel("Iteration")
+plt.ylabel("Error norm")
+plt.legend()
+plt.title("Task-space error")
+
+plt.subplot(1,3,2)
+plt.plot(dq_pinv, label="Pinv")
+plt.plot(dq_dls, label="DLS")
+plt.xlabel("Iteration")
+plt.ylabel("||Δq||")
+plt.legend()
+plt.title("Joint motion per step")
+
+plt.subplot(1,3,3)
+plt.plot(sigma_pinv, label="Pinv")
+plt.plot(sigma_dls, label="DLS")
+plt.xlabel("Iteration")
+plt.ylabel("Min singular value")
+plt.legend()
+plt.title("Closeness to singularity")
+
+plt.tight_layout()
+plt.show()
+```
+
+---
+
+## 5. Interpretation of Plots and Behavior
+
+| Aspect            | Observation                              | Interpretation                                    | Suggested Improvement                      |
+|-------------------|----------------------------------------|-------------------------------------------------|--------------------------------------------|
+| **Task-space error** (left plot) | Pinv converges faster but oscillates. DLS converges smoothly but slower. | Pinv overshoots near singularities; DLS is stable. | Tune damping \( \lambda \) and step size \( \alpha \) adaptively. |
+| **Joint motion norm** (middle plot) | Pinv shows large spikes in joint updates; DLS remains smooth and bounded. | Pinv unstable near singularities; DLS regularizes jumps, safer for hardware. | Limit max joint step size; use adaptive damping increasing near singularities. |
+| **Minimum singular value** (right plot) | Initially low indicating closeness to singularity; Pinv dips near iteration 5; DLS stays higher and smoother. | Pinv unstable near singularity; DLS avoids abrupt changes by damping. | Implement adaptive damping based on \( \sigma_{min} \); add null-space optimization for singularity avoidance. |
+
+---
+
+## 6. Summary and Recommendations
+
+- **Moore–Penrose pseudo-inverse (Pinv):** Fast but unstable near singularities, prone to large joint motions.
+- **Damped Least Squares (DLS):** More stable, slower convergence, smooth joint motions.
+- **Adaptive damping** improves robustness by increasing \( \lambda \) near singularities.
+- **Step size control** helps prevent large joint jumps.
+- **Singularity avoidance strategies** (null-space optimization, joint limit avoidance) improve IK safety.
+
+---
